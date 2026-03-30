@@ -1,0 +1,14 @@
+# Dependencies
+**/node_modules/
+ai_service/venv/
+
+# Environment
+**/.env
+
+# Logs
+**/*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
