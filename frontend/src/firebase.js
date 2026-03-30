@@ -1,15 +1,22 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 
-// Your web app's Firebase configuration from user
 const firebaseConfig = {
-  apiKey: "AIzaSyA05elWH5jAUsPbQWZ1P13wBi1bpeA5otQ",
-  authDomain: "biovault-8ee36.firebaseapp.com",
-  projectId: "biovault-8ee36",
-  storageBucket: "biovault-8ee36.firebasestorage.app",
-  messagingSenderId: "409001231543",
-  appId: "1:409001231543:web:dd25a9a29f4ebbf40db932"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
+
+const missing = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missing.length > 0) {
+  throw new Error(`Missing Firebase env vars: ${missing.join(', ')}`);
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

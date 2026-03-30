@@ -6,13 +6,23 @@ const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
-const PORT = 5000;
+const PORT = Number(process.env.PORT || 5000);
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000/ai/process';
+const MONGO_URI = process.env.MONGO_URI;
 
-app.use(cors());
+if (!MONGO_URI) {
+    console.error('MONGO_URI is not set. Add it to backend/.env');
+    process.exit(1);
+}
+
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean)
+    : true;
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 // Connect to MongoDB
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/biovault';
 mongoose.connect(MONGO_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB connection error:', err));
@@ -30,7 +40,7 @@ app.post('/api/trigger', async (req, res) => {
     try {
         // Forward request to AI Service (FastAPI)
         console.log('Backend (Node/Express): Forwarding request to AI Service...');
-        const aiResponse = await axios.post('http://localhost:8000/ai/process');
+        const aiResponse = await axios.post(AI_SERVICE_URL);
         
         console.log('Backend (Node/Express): Received response from AI Service');
         res.status(200).json({

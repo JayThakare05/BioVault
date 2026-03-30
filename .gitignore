@@ -4,6 +4,8 @@ ai_service/venv/
 
 # Environment
 **/.env
+**/.env.*
+!**/.env.example
 
 # Logs
 **/*.log

@@ -3,7 +3,11 @@ const router = express.Router();
 const CryptoJS = require('crypto-js');
 const User = require('../models/User');
 
-const SECRET_KEY = process.env.SECRET_KEY || 'biovault_super_secret';
+const SECRET_KEY = process.env.SECRET_KEY;
+
+if (!SECRET_KEY) {
+    throw new Error('SECRET_KEY is not set. Add it to backend/.env');
+}
 
 // Encrypt string helper
 const encrypt = (text) => CryptoJS.AES.encrypt(text, SECRET_KEY).toString();
