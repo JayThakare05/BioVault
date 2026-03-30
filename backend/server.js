@@ -2,11 +2,27 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 
+const mongoose = require('mongoose');
+require('dotenv').config();
+
 const app = express();
 const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
+
+// Connect to MongoDB
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/biovault';
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// Routes
+const authRoutes = require('./routes/auth');
+const transactionRoutes = require('./routes/transaction');
+
+app.use('/api/auth', authRoutes);
+app.use('/api/transaction', transactionRoutes);
 
 app.post('/api/trigger', async (req, res) => {
     console.log('Backend (Node/Express): Received request from Frontend');

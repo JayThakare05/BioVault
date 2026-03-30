@@ -58,7 +58,7 @@ function ReceiveModal({ address, onClose }) {
         style={{ background: 'rgba(13,17,23,0.95)' }}
         onClick={e => e.stopPropagation()}
       >
-        <h2 className="font-space font-bold text-xl" style={{ color: '#f0f6fc' }}>Receive ETH</h2>
+        <h2 className="font-space font-bold text-xl" style={{ color: '#f0f6fc' }}>Receive Rs</h2>
         <p className="text-xs text-center" style={{ color: '#8b949e' }}>
           Scan QR code or copy address below
         </p>
@@ -144,7 +144,7 @@ function TxRow({ tx }) {
           className="font-semibold text-sm"
           style={{ color: isSent ? '#ff6b7a' : '#06ffb4' }}
         >
-          {isSent ? '-' : '+'}{tx.amount} ETH
+          {isSent ? '-' : '+'}₹{tx.amount}
         </p>
         <p className="text-xs mt-0.5" style={{ color: '#4a5568' }}>
           {fmtDate(tx.timestamp)}
@@ -238,7 +238,7 @@ export default function DashboardPage() {
     .reduce((acc, t) => acc + parseFloat(t.amount), 0)
     .toFixed(4);
 
-  const usdBalance = (parseFloat(balance) * 2487.32).toFixed(2);
+
 
   return (
     <div
@@ -326,11 +326,8 @@ export default function DashboardPage() {
               <h2 className="font-space font-bold text-5xl" style={{ color: '#f0f6fc' }}>
                 <AnimatedNumber value={balance} />
               </h2>
-              <span className="text-xl font-semibold" style={{ color: '#00d4ff' }}>ETH</span>
+              <span className="text-xl font-semibold" style={{ color: '#00d4ff' }}>Rs</span>
             </div>
-            <p className="text-lg font-medium" style={{ color: '#8b949e' }}>
-              ≈ ${usdBalance} USD
-            </p>
 
             {/* Address Row */}
             <div className="mt-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -380,7 +377,7 @@ export default function DashboardPage() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
-                Send ETH
+                Send Rs
               </button>
               <button
                 id="receive-btn"
@@ -409,7 +406,7 @@ export default function DashboardPage() {
           <StatCard
             icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 17L17 7M17 7H7M17 7V17" stroke="#ff4757" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             label="Total Sent"
-            value={`${sentTotal} ETH`}
+            value={`₹${sentTotal}`}
             color="#ff6b7a"
             sub="Outgoing"
           />

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { ethers } from 'ethers';
+import axios from 'axios';
 
 const WalletContext = createContext(null);
 
@@ -89,7 +90,7 @@ export function WalletProvider({ children }) {
 
     const creationOptions = {
       challenge,
-      rp: { name: 'BioVault', id: window.location.hostname || 'localhost' },
+      rp: { name: 'BioVault' },
       user: { id: userId, name: username, displayName: username },
       pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
       authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
@@ -113,7 +114,6 @@ export function WalletProvider({ children }) {
     const assertionOptions = {
       challenge,
       timeout: 60000,
-      rpId: window.location.hostname || 'localhost',
       allowCredentials: [{ type: 'public-key', id: Uint8Array.from(atob(stored), c => c.charCodeAt(0)) }],
       userVerification: 'required',
     };
@@ -128,50 +128,62 @@ export function WalletProvider({ children }) {
     return 'simulated_' + Math.random().toString(36).substring(2);
   }, []);
 
-  // ── Full Register Flow ──────────────────────────────────────
-  const registerAccount = useCallback(async (username) => {
-    let credId;
+  // ── Standalone Biometric Functions ─────────────────────────
+  const performBiometricScan = useCallback(async (username) => {
     try {
-      // 🚨 Will fail on mobile HTTP because WebAuthn requires HTTPS
-      credId = await registerWebAuthn(username);
-      setAuthMethod('webauthn');
+      return await registerWebAuthn(username);
     } catch (err) {
-      console.warn('WebAuthn failed (likely mobile HTTP), falling back to simulation:', err);
-      credId = await simulateBiometric();
-      setAuthMethod('simulated');
-      localStorage.setItem('biovault_credential_id', credId); // save fake ID
+      console.warn('WebAuthn failed, falling back to simulation:', err);
+      return await simulateBiometric();
     }
+  }, [registerWebAuthn, simulateBiometric]);
+
+  const performBiometricVerify = useCallback(async () => {
+    try {
+      return await loginWebAuthn();
+    } catch (err) {
+      console.warn('WebAuthn login failed, falling back to simulation:', err);
+      return await simulateBiometric();
+    }
+  }, [loginWebAuthn, simulateBiometric]);
+
+  // ── Full Register Flow ──────────────────────────────────────
+  const registerAccount = useCallback(async ({ username, fullName, biometricData, faceBiometricData }) => {
+
+    const generatedAddress = generateWallet(biometricData || faceBiometricData || username);
+
+    const res = await axios.post('/api/auth/register', {
+      username,
+      fullName,
+      biometricData,
+      faceBiometricData,
+      walletAddress: generatedAddress
+    });
 
     localStorage.setItem('biovault_username', username);
-    setUserProfile({ name: username });
-    setBiometricId(credId);
-    generateWallet(credId);
+    if(biometricData) localStorage.setItem('biovault_credential_id', biometricData);
+    if(faceBiometricData) localStorage.setItem('biovault_face_id', faceBiometricData);
+    
+    setUserProfile({ name: res.data.user.fullName, username: res.data.user.username });
+    setBalance(res.data.user.points.toFixed(4));
+    setBiometricId(biometricData || faceBiometricData);
     setIsAuthenticated(true);
-  }, [registerWebAuthn, simulateBiometric, generateWallet]);
+  }, [generateWallet]);
 
-  // ── Full Login Flow ─────────────────────────────────────────
-  const loginAccount = useCallback(async () => {
-    let credId;
-    const stored = localStorage.getItem('biovault_credential_id');
-    if (!stored) throw new Error("Please register an account first.");
+  const loginAccount = useCallback(async ({ username, biometricData, faceBiometricData }) => {
+    const res = await axios.post('/api/auth/login', {
+      username,
+      biometricData: biometricData || undefined,
+      faceBiometricData: faceBiometricData || undefined
+    });
 
-    try {
-      if (stored.startsWith('simulated_')) throw new Error("Simulation profile");
-      credId = await loginWebAuthn();
-      setAuthMethod('webauthn');
-    } catch (err) {
-      console.warn('Falling back to simulated login:', err);
-      credId = await simulateBiometric();
-      if (!stored.startsWith('simulated_') && err.message !== "Simulation profile") {
-         // It used to be real WebAuthn, but failed. We still let them in for demo.
-      }
-      setAuthMethod('simulated');
-    }
+    if(biometricData || faceBiometricData) generateWallet(biometricData || faceBiometricData);
 
-    setBiometricId(credId);
-    generateWallet(credId);
+    setUserProfile({ name: res.data.user.fullName, username: res.data.user.username });
+    setBalance(res.data.user.points.toFixed(4));
+    setBiometricId(biometricData || faceBiometricData);
     setIsAuthenticated(true);
-  }, [loginWebAuthn, simulateBiometric, generateWallet]);
+  }, [generateWallet]);
 
   const logout = useCallback(() => {
     setIsAuthenticated(false);
@@ -184,25 +196,28 @@ export function WalletProvider({ children }) {
 
   const sendTransaction = useCallback(async ({ to, amount, label }) => {
     const amountNum = parseFloat(amount);
-    const balanceNum = parseFloat(balance);
-    if (amountNum > balanceNum) throw new Error('Insufficient balance');
     if (amountNum <= 0) throw new Error('Invalid amount');
-    if (!ethers.isAddress(to)) throw new Error('Invalid ETH address');
 
-    await new Promise(r => setTimeout(r, 2000));
+    // Call backend to transfer points between users
+    // Normally 'to' is an ETH address but we treat it as username here
+    const res = await axios.post('/api/transaction/transfer', {
+      fromUsername: userProfile.username,
+      toUsername: to,
+      amount: amountNum
+    });
 
     const hashArr = Array.from(safeRandom(32));
     const hash = '0x' + hashArr.map(b => b.toString(16).padStart(2, '0')).join('');
 
     const newTx = {
-      hash, type: 'sent', amount: amountNum.toFixed(4), from: null, to,
-      timestamp: new Date().toISOString(), status: 'confirmed', label: label || `Sent to ${to.slice(0, 8)}...`,
+      hash, type: 'sent', amount: amountNum.toFixed(4), from: userProfile.username, to,
+      timestamp: new Date().toISOString(), status: 'confirmed', label: label || `Sent to ${to}`,
     };
 
     setTransactions(prev => [newTx, ...prev]);
-    setBalance(prev => (parseFloat(prev) - amountNum).toFixed(4));
+    setBalance(res.data.remainingBalance.toFixed(4));
     return hash;
-  }, [balance]);
+  }, [balance, userProfile]);
 
   const checkFraud = useCallback((amount) => parseFloat(amount) > 1.0, []);
 
@@ -210,6 +225,7 @@ export function WalletProvider({ children }) {
     <WalletContext.Provider value={{
       isAuthenticated, biometricId, wallet, balance, transactions, authMethod, userProfile,
       registerAccount, loginAccount, logout, sendTransaction, checkFraud,
+      performBiometricScan, performBiometricVerify
     }}>
       {children}
     </WalletContext.Provider>

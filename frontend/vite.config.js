@@ -6,8 +6,13 @@ export default defineConfig({
     react()
   ],
   server: {
-    allowedHosts: [
-      '1f8b95693385e8.lhr.life'
-    ]
+    host: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true
+      }
+    },
+    allowedHosts: true
   }
 })

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWallet } from '../context/WalletContext';
+import FaceScanner from '../components/FaceScanner';
 
 function ParticleField() {
   return (
@@ -68,10 +69,15 @@ function FingerprintScanner({ scanning, success, error }) {
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { registerAccount, loginAccount, isAuthenticated } = useWallet();
+  const { registerAccount, loginAccount, isAuthenticated, performBiometricScan, performBiometricVerify } = useWallet();
 
   const [mode, setMode] = useState('login'); // 'login' | 'register'
   const [username, setUsername] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [pin, setPin] = useState('');
+  const [fingerprintId, setFingerprintId] = useState(null);
+  const [faceId, setFaceId] = useState(null);
+  const [showFaceScanner, setShowFaceScanner] = useState(false);
   const [phase, setPhase] = useState('idle'); // idle | scanning | success | error
   const [statusMsg, setStatusMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -88,8 +94,14 @@ export default function LoginPage() {
 
   const handleAuth = async () => {
     if (phase === 'scanning') return;
-    if (mode === 'register' && !username.trim()) {
-      setErrorMsg("Please enter a username");
+    if (mode === 'register' && (!username.trim() || !fullName.trim() || !pin.trim())) {
+      setErrorMsg("Please fill all fields");
+      setPhase('error');
+      setTimeout(() => setPhase('idle'), 3000);
+      return;
+    }
+    if (mode === 'login' && !username.trim()) {
+      setErrorMsg("Please enter username");
       setPhase('error');
       setTimeout(() => setPhase('idle'), 3000);
       return;
@@ -97,14 +109,26 @@ export default function LoginPage() {
 
     setPhase('scanning');
     setErrorMsg('');
-    setStatusMsg('Scanning biometrics...');
+    setStatusMsg('Verifying identity...');
+
+    if (mode === 'register' && !fingerprintId && !faceId) {
+      setErrorMsg("Please scan at least one biometric");
+      setPhase('error');
+      setTimeout(() => setPhase('idle'), 3000);
+      return;
+    }
+
+    setPhase('scanning');
+    setErrorMsg('');
+    setStatusMsg('Finalizing...');
 
     try {
-      setStatusMsg('Verifying identity...');
       if (mode === 'register') {
-        await registerAccount(username);
+        setStatusMsg('Registering profile...');
+        await registerAccount({ username, fullName, biometricData: fingerprintId, faceBiometricData: faceId });
       } else {
-        await loginAccount();
+        setStatusMsg('Logging in...');
+        await loginAccount({ username });
       }
       setPhase('success');
       setStatusMsg('Identity verified! Accessing vault...');
@@ -112,9 +136,71 @@ export default function LoginPage() {
     } catch (err) {
       console.warn('Auth Error:', err);
       setPhase('error');
-      setErrorMsg(err.message || 'Authentication failed');
+      setErrorMsg(err.response?.data?.error || err.message || 'Authentication failed');
       setStatusMsg('');
       setTimeout(() => { setPhase('idle'); setErrorMsg(''); }, 4000);
+    }
+  };
+
+  const scanBiometric = async (type) => {
+    if (!username.trim()) {
+      setErrorMsg("Please enter username first");
+      setPhase('error');
+      setTimeout(() => setPhase('idle'), 3000);
+      return;
+    }
+    if (type === 'face') {
+      setShowFaceScanner(true);
+      return;
+    }
+
+    setPhase('scanning');
+    setStatusMsg(`Scanning ${type === 'face' ? 'Face ID' : 'Fingerprint'}...`);
+    
+    try {
+      let credId;
+      if (mode === 'register') {
+        credId = await performBiometricScan(username);
+        setFingerprintId(credId);
+      } else {
+        credId = await performBiometricVerify();
+        await loginAccount({ username, biometricData: credId });
+        setPhase('success');
+        setStatusMsg('Identity verified! Accessing vault...');
+        setTimeout(() => navigate('/dashboard'), 1200);
+        return; // Login redirects immediately
+      }
+      setPhase('success');
+      setStatusMsg(`Fingerprint Saved!`);
+      setTimeout(() => setPhase('idle'), 2000);
+    } catch (err) {
+      setPhase('error');
+      setErrorMsg(err.message || 'Scan failed');
+      setTimeout(() => setPhase('idle'), 3000);
+    }
+  };
+
+  const handleFaceScanComplete = async (credId) => {
+    setShowFaceScanner(false);
+    setPhase('scanning');
+    setStatusMsg('Processing Face ID...');
+
+    try {
+      if (mode === 'register') {
+        setFaceId(credId);
+        setPhase('success');
+        setStatusMsg('Face ID Saved!');
+        setTimeout(() => setPhase('idle'), 2000);
+      } else {
+        await loginAccount({ username, faceBiometricData: credId });
+        setPhase('success');
+        setStatusMsg('Face verified! Accessing vault...');
+        setTimeout(() => navigate('/dashboard'), 1200);
+      }
+    } catch (err) {
+      setPhase('error');
+      setErrorMsg(err.message || 'Face verification failed');
+      setTimeout(() => setPhase('idle'), 3000);
     }
   };
 
@@ -157,17 +243,23 @@ export default function LoginPage() {
           </p>
         </div>
 
-        {mode === 'register' && (
-          <div className="w-full space-y-2 animate-fadeIn">
-            <label className="text-xs font-medium" style={{ color: '#8b949e' }}>Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. Satoshi"
-              className="input-field w-full px-4 py-3 text-sm"
-              disabled={phase !== 'idle' && phase !== 'error'}
-            />
+        {mode === 'register' ? (
+          <div className="w-full space-y-3 animate-fadeIn">
+            <div>
+              <label className="text-xs font-medium" style={{ color: '#8b949e' }}>Username</label>
+              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. Satoshi" className="input-field w-full px-4 py-2 text-sm mt-1" disabled={phase !== 'idle' && phase !== 'error'} />
+            </div>
+            <div>
+              <label className="text-xs font-medium" style={{ color: '#8b949e' }}>Full Name</label>
+              <input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="e.g. Satoshi Nakamoto" className="input-field w-full px-4 py-2 text-sm mt-1" disabled={phase !== 'idle' && phase !== 'error'} />
+            </div>
+          </div>
+        ) : (
+          <div className="w-full space-y-3 animate-fadeIn">
+            <div>
+              <label className="text-xs font-medium" style={{ color: '#8b949e' }}>Username</label>
+              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="e.g. Satoshi" className="input-field w-full px-4 py-2 text-sm mt-1" disabled={phase !== 'idle' && phase !== 'error'} />
+            </div>
           </div>
         )}
 
@@ -181,24 +273,44 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <button
-          onClick={handleAuth}
-          disabled={phase === 'scanning' || phase === 'success'}
-          className="btn-primary w-full py-3.5 text-sm flex items-center justify-center gap-2"
-          style={{ opacity: (phase === 'scanning' || phase === 'success') ? 0.7 : 1, cursor: (phase === 'scanning' || phase === 'success') ? 'not-allowed' : 'pointer' }}
-        >
-          {phase === 'scanning' ? (
-            <><span className="inline-block w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />Processing…</>
-          ) : phase === 'success' ? (
-            <>✓ Approved</>
-          ) : (
-            <>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2C8.13 2 5 5.13 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.87-3.13-7-7-7z" stroke="white" strokeWidth="2"/><path d="M9 21h6M10 17v4M14 17v4" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
-              {mode === 'register' ? 'Register Biometrics' : 'Login with Biometrics'}
-            </>
-          )}
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 w-full">
+          <button
+            onClick={() => scanBiometric('finger')}
+            disabled={phase === 'scanning' || phase === 'success' || (mode === 'register' && fingerprintId)}
+            className="btn-primary flex-1 py-3 text-sm flex items-center justify-center gap-2"
+            style={{ opacity: (phase === 'scanning' || phase === 'success') ? 0.7 : 1, cursor: (phase === 'scanning' || phase === 'success') ? 'not-allowed' : 'pointer' }}
+          >
+            {mode === 'register' && fingerprintId ? '✓ Fingerprint Saved' : '👆 Scan Fingerprint'}
+          </button>
+          <button
+            onClick={() => scanBiometric('face')}
+            disabled={phase === 'scanning' || phase === 'success' || (mode === 'register' && faceId)}
+            className="btn-primary flex-1 py-3 text-sm flex items-center justify-center gap-2"
+            style={{ opacity: (phase === 'scanning' || phase === 'success') ? 0.7 : 1, cursor: (phase === 'scanning' || phase === 'success') ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
+          >
+            {mode === 'register' && faceId ? '✓ Face ID Saved' : '👤 Scan Face ID'}
+          </button>
+        </div>
+
+        {mode === 'register' && (
+          <button
+            onClick={handleAuth}
+            disabled={phase === 'scanning' || (!fingerprintId && !faceId)}
+            className="w-full py-3 text-sm mt-2 text-white font-medium rounded-lg"
+            style={{ border: '1px solid rgba(6,255,180,0.4)', background: 'rgba(6,255,180,0.1)' }}
+          >
+            Complete Registration →
+          </button>
+        )}
       </div>
+
+      {/* Face Scanner Modal */}
+      {showFaceScanner && (
+        <FaceScanner 
+          onScanComplete={handleFaceScanComplete} 
+          onCancel={() => { setShowFaceScanner(false); setPhase('idle'); }} 
+        />
+      )}
     </div>
   );
 }

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
 import { useWallet } from '../context/WalletContext';
+import { Html5QrcodeScanner } from 'html5-qrcode';
 
 // ── Send ETH Modal ─────────────────────────────────────────────
-export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
-  const { sendTransaction, checkFraud, balance } = useWallet();
+export default function SendModal({ onClose, onSuccess }) {
+  const { sendTransaction, balance, performBiometricVerify } = useWallet();
 
   const [to, setTo] = useState('');
   const [amount, setAmount] = useState('');
@@ -12,11 +13,11 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
   const [phase, setPhase] = useState('idle'); // idle | fraud-warn | sending | done | error
   const [errorMsg, setErrorMsg] = useState('');
   const [txHash, setTxHash] = useState('');
-  const [fraudAcknowledged, setFraudAcknowledged] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const scannerRef = useRef(null);
 
   const validateForm = () => {
-    if (!to.trim()) return 'Recipient address is required';
-    if (!ethers.isAddress(to)) return 'Invalid Ethereum address';
+    if (!to.trim()) return 'Recipient username is required';
     if (!amount || parseFloat(amount) <= 0) return 'Enter a valid amount';
     if (parseFloat(amount) > parseFloat(balance)) return 'Insufficient balance';
     return null;
@@ -27,25 +28,38 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
     if (err) { setErrorMsg(err); return; }
     setErrorMsg('');
 
-    // Fraud check
-    const isFraud = checkFraud(amount);
-    if (isFraud && !fraudAcknowledged) {
-      setPhase('fraud-warn');
-      onFraudAlert(amount);
-      return;
-    }
-
     setPhase('sending');
     try {
+      await performBiometricVerify(); // Biometric Check before transaction!
       const hash = await sendTransaction({ to, amount, label });
       setTxHash(hash);
       setPhase('done');
       setTimeout(() => onSuccess(hash), 1200);
     } catch (e) {
-      setErrorMsg(e.message);
+      setErrorMsg(e.response?.data?.error || e.message || "Biometric Check Failed");
       setPhase('error');
     }
   };
+
+  useEffect(() => {
+    if (showQRScanner) {
+      const scanner = new Html5QrcodeScanner("reader", { 
+        fps: 10, 
+        qrbox: { width: 250, height: 250 },
+        rememberLastUsedCamera: true
+      });
+
+      scanner.render((decodedText) => {
+        setTo(decodedText);
+        setShowQRScanner(false);
+        scanner.clear();
+      }, (err) => {
+        // console.warn(err);
+      });
+
+      return () => scanner.clear();
+    }
+  }, [showQRScanner]);
 
   const shortHash = (h) => h ? `${h.slice(0, 10)}...${h.slice(-8)}` : '';
 
@@ -66,7 +80,7 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
           style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}
         >
           <h2 className="font-space font-bold text-xl" style={{ color: '#f0f6fc' }}>
-            Send ETH
+            Send Rs
           </h2>
           <button
             onClick={onClose}
@@ -100,7 +114,7 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
                   Transaction Successful!
                 </h3>
                 <p className="text-sm" style={{ color: '#8b949e' }}>
-                  {amount} ETH sent successfully
+                  ₹{amount} sent successfully
                 </p>
               </div>
               <div
@@ -116,42 +130,7 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
             </div>
           )}
 
-          {/* ── Fraud Warning ── */}
-          {phase === 'fraud-warn' && (
-            <div
-              className="rounded-xl p-5 space-y-4 animate-fadeIn"
-              style={{
-                background: 'rgba(255,165,2,0.08)',
-                border: '1px solid rgba(255,165,2,0.3)',
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">⚠️</span>
-                <div>
-                  <p className="font-semibold" style={{ color: '#ffa502' }}>
-                    Suspicious Transaction Detected
-                  </p>
-                  <p className="text-sm mt-1" style={{ color: '#8b949e' }}>
-                    This transaction of <strong style={{ color: '#ffa502' }}>{amount} ETH</strong> exceeds the safety threshold of 1.0 ETH. Large transfers are unusual.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setPhase('idle')}
-                  className="btn-ghost flex-1 py-2.5 text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => { setFraudAcknowledged(true); setPhase('idle'); setTimeout(handleSend, 50); }}
-                  className="btn-danger flex-1 py-2.5 text-sm"
-                >
-                  Proceed Anyway
-                </button>
-              </div>
-            </div>
-          )}
+
 
           {/* ── Form ── */}
           {(phase === 'idle' || phase === 'error') && (
@@ -166,21 +145,34 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
               >
                 <span className="text-xs" style={{ color: '#8b949e' }}>Available</span>
                 <span className="font-mono text-sm font-semibold" style={{ color: '#00d4ff' }}>
-                  {balance} ETH
+                  ₹{balance}
                 </span>
               </div>
 
               {/* Recipient */}
               <div className="space-y-2">
-                <label className="text-xs font-medium" style={{ color: '#8b949e' }}>
-                  Recipient Address
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium" style={{ color: '#8b949e' }}>
+                    Recipient Username
+                  </label>
+                  <button 
+                    onClick={() => setShowQRScanner(!showQRScanner)}
+                    className="text-[10px] uppercase tracking-wider font-bold py-1 px-2 rounded bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all"
+                  >
+                    {showQRScanner ? '✕ Close Scanner' : '📷 Scan QR'}
+                  </button>
+                </div>
+
+                {showQRScanner && (
+                  <div id="reader" className="w-full overflow-hidden rounded-xl border border-white/10 mt-2 bg-black" />
+                )}
+
                 <input
                   id="send-to-input"
                   type="text"
                   value={to}
                   onChange={e => setTo(e.target.value)}
-                  placeholder="0x..."
+                  placeholder="e.g. Satoshi"
                   className="input-field w-full px-4 py-3 text-sm font-mono"
                 />
               </div>
@@ -188,7 +180,7 @@ export default function SendModal({ onClose, onSuccess, onFraudAlert }) {
               {/* Amount */}
               <div className="space-y-2">
                 <label className="text-xs font-medium" style={{ color: '#8b949e' }}>
-                  Amount (ETH)
+                  Amount (Rs)
                 </label>
                 <div className="relative">
                   <input
